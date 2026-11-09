@@ -1,0 +1,59 @@
+{
+  "name": "VERIFEX Compact U-Net",
+  "version": "synthetic-unet-v1",
+  "trained_at": "2026-11-09T07:36:43.030057+00:00",
+  "epoch": 16,
+  "seed": 427,
+  "device": "cpu",
+  "learning_rate": 0.002,
+  "batch_size": 24,
+  "size": 128,
+  "dataset": {
+    "image_size": 128,
+    "counts": {
+      "train_0": 700,
+      "train_1": 700,
+      "validation_0": 150,
+      "validation_1": 150,
+      "test_0": 150,
+      "test_1": 150
+    },
+    "template_split": {
+      "train": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "validation": [
+        14,
+        15,
+        16
+      ],
+      "test": [
+        17,
+        18,
+        19
+      ]
+    }
+  },
+  "classification_threshold": 0.5178775191307068,
+  "mask_threshold": 0.45,
+  "classes": [
+    "no_visual_tamper_signal",
+    "visual_tamper_signal"
+  ],
+  "preprocessing": "Letterbox BGR, normalized grayscale, Gaussian residual; inverse crop for masks",
+  "limitations": "Trained on fictional certificates. Scores are uncalibrated visual signals. Scans, uncommon layouts and subtle edits can produce missed or spurious regions.",
+  "threshold_selection": "Maximum balanced accuracy on held-out validation templates; tie favors lower false-positive rate."
+}

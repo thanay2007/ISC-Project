@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+.venv
+**/__pycache__
+**/.pytest_cache
+.verifex
+frontend/node_modules
+frontend/.next
+ml/datasets
+ml/models/resnet18.pth
+ml/models/ocr_forest.joblib
