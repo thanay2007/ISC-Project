@@ -66,7 +66,8 @@ with sync_playwright() as playwright:
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(base + "/model-performance")
     expect(page.get_by_role("heading", name="Model performance", exact=True)).to_be_visible()
-    expect(page.get_by_text("Accuracy", exact=True)).to_be_visible()
+    expect(page.get_by_text("Accuracy", exact=True).first).to_be_visible()
+    expect(page.get_by_text("Kriyam TamperFlow · C0 · 16 images", exact=True)).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth === window.innerWidth"), "Horizontal overflow at 390px"
     page.screenshot(path=output / "model-mobile.png", full_page=True)
     assert not errors, errors
