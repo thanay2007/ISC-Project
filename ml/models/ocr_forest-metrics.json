@@ -1,0 +1,47 @@
+{
+  "validation": {
+    "count": 300,
+    "accuracy": 0.5433333333333333,
+    "precision": 0.5288888888888889,
+    "recall": 0.7933333333333333,
+    "f1": 0.6346666666666667,
+    "false_positive_rate": 0.7066666666666667,
+    "roc_auc": 0.5319777777777778,
+    "average_precision": 0.5218688616183166,
+    "confusion_matrix": [
+      [
+        44,
+        106
+      ],
+      [
+        31,
+        119
+      ]
+    ],
+    "median_ms": 5.09
+  },
+  "test": {
+    "count": 300,
+    "accuracy": 0.51,
+    "precision": 0.5062240663900415,
+    "recall": 0.8133333333333334,
+    "f1": 0.6240409207161125,
+    "false_positive_rate": 0.7933333333333333,
+    "roc_auc": 0.5132,
+    "average_precision": 0.5221925346102371,
+    "confusion_matrix": [
+      [
+        31,
+        119
+      ],
+      [
+        28,
+        122
+      ]
+    ],
+    "median_ms": 4.169
+  },
+  "threshold": 0.480955844155844,
+  "method": "OpenCV estimated text regions",
+  "device": "cpu"
+}
