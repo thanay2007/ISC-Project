@@ -1,59 +1,52 @@
-# VERIFEX model card and reproduction
+# VERIFEX model card and training
 
-## Data and permissions
+VERIFEX uses one Balanced U-Net checkpoint, `mixed-unet-v3`. It scores visual evidence of edits and produces a localization mask for each page. The checkpoint takes 320 × 320 RGB inputs with a grayscale residual channel. Issuance and signature verification run separately.
 
-The shipped Compact U-Net was trained on 1,000 fictional original/tampered pairs, for 2,000 classification images. Each pair has a binary tamper mask. The generator creates 20 layout families, varying fonts, page orientation, decoration, fields, and backgrounds. It applies field replacement, erasure, copy-move, local blur, local compression, and simulated scan patches. The prepared set contains 1,400 train, 300 validation, and 300 test images with equal class counts within each split. Entire layouts and original pairs stay in one split. Pixel masks follow geometric preprocessing and training augmentations. Exact duplicate images are excluded by decoded-pixel hash.
+## Data and results
 
-| Source | Access and format | Use |
-| --- | --- | --- |
-| [Kriyam TamperFlow](https://huggingface.co/datasets/kriyam-ai/kriyam-tamperflow) | Public, CC BY-NC 4.0, attribution required. 2,307 PNG rows with genuine/altered labels, polygon regions, and C0/C2/C4 compression tiers. Source revision is pinned in the downloader. | External evaluation only. Images and annotations stay local. |
-| [DocTamper project](https://github.com/qcf-568/DocTamper), [CVPR paper](https://openaccess.thecvf.com/content/CVPR2023/html/Qu_Towards_Robust_Tampered_Text_Detection_in_Document_Image_New_Dataset_CVPR_2023_paper.html) | The authors report 170,000 tampered images with pixel labels in LMDB. Non-commercial university and research use requires approval and archive credentials. | No files downloaded. Apply through the official repository with an eligible university contact, then use the provided LMDB viewer. Genuine negatives require separately permitted data such as the authors’ TFR source. |
-| [FUNSD](https://guillaumejaume.github.io/FUNSD/download/), [CORD](https://github.com/clovaai/cord) | Forms and receipts for document understanding. FUNSD has 199 annotated forms. CORD supplies receipt OCR and layout annotations under CC BY 4.0. | No forgery labels. Excluded from training and metrics. |
+| Source | Training pool | Held-out test | Test result |
+| --- | ---: | ---: | --- |
+| [AIForge-Doc v2](https://huggingface.co/datasets/Scam-AI/AIForge-Doc-v2) | 4,166 | 1,225 | ROC-AUC 0.502 |
+| [Kriyam TamperFlow](https://huggingface.co/datasets/kriyam-ai/kriyam-tamperflow) | 1,026 | 338 | ROC-AUC 0.909 |
+| [DocTamper](https://github.com/qcf-568/DocTamper) | 5,899 | 1,196 | Recall 43.7% |
+| VERIFEX synthetic certificates | 1,400 | 300 | ROC-AUC 0.833, F1 0.753 |
 
-The source review checked Hugging Face and DocTamper’s official Kaggle distribution information. The Roboflow Universe and Papers With Code listings did not provide a verified dataset and license for this run. TamperFlow publishes 700 altered and 69 genuine images per tier. The recorded evaluation downloaded and verified eight of each from C0. Some published file URLs returned HTTP 404, so the downloader skipped those IDs and recorded the selected files. [Public sample manifest](results/public-dataset-manifest.jsonl), [download summary](results/public-dataset-summary.json).
+The run also used 5,586 matched crop views from the training pool. AIForge reserves its official test split and keeps matched genuine and edited pages together. TamperFlow keeps each document's C0, C2, and C4 compression views in the same split. DocTamper provides sampled LMDB pages for pixel supervision. Its test split contains altered pages only. Synthetic layouts stay together by template family. Dataset access and redistribution follow the respective source terms.
 
-## Reproduce
+AIForge performance is near chance, and the selected threshold flagged 68.6% of genuine AIForge pages and 45.5% of genuine TamperFlow pages. The model score is a review signal. See [per-dataset metrics](results/metrics.json), the [confusion matrix](results/confusion_matrix.png), the [training loss](results/training_curves.png), and the [precision–recall curve](results/precision_recall.png). The API serves recorded metrics when the checkpoint digest and classification threshold match.
 
-Install the [base backend dependencies](../README.md), then from the repository root:
+## Document verdict classifier
+
+The app uses a separate classifier over the U-Net's page features, localization map, and scan statistics. The selected classifier uses gradient-boosted trees. It was fitted on 2,111 training pages, with selection on 2,239 validation pages. Each upload is scored from its own pages. An exact signed match can independently confirm the registered version.
+
+| Metric on 3,059 reserved pages | U-Net cutoff | Verdict classifier |
+| --- | ---: | ---: |
+| Genuine pages incorrectly flagged | 55.2% | 38.6% |
+| Altered pages detected | 58.6% | 50.7% |
+| Balanced accuracy | 51.7% | 56.0% |
+| ROC-AUC | 0.526 | 0.568 |
+
+The real-world accuracy of the verdict depends on document type and capture quality. AIForge remains near chance at ROC-AUC 0.500. The displayed visual confidence describes distance from the decision threshold. Per-source results are stored in [the verdict classifier artifact](models/document_assessment.json).
+
+## Train and evaluate
+
+Install the [backend dependencies](../README.md) and the ML requirements. Obtain the full AIForge archive with authentic pairs, a TamperFlow snapshot with `metadata.jsonl`, and the approved DocTamper LMDB files. Set `$aiForgeRoot`, `$tamperFlowRoot`, and `$docTamperRoot` to the respective extracted directories before running these commands from the repository root.
 
 ~~~powershell
-python -m pip install -r ml/requirements.txt
+python -m pip install -r ml/requirements.txt lmdb
 python -m ml.scripts.generate_synthetic_data --pairs 1000 --seed 427
-python -m ml.scripts.prepare_dataset --size 128
-python -m ml.training.train_segmenter --epochs 16 --batch 24 --lr 0.002 --threads 5 --seed 427
-python -m ml.training.train_classifier --architecture ocr_forest --threads 4
-python -m ml.training.train_classifier --architecture resnet18 --epochs 15 --batch 32 --threads 4
-python -m ml.training.evaluate_model --select-threshold
-python -m ml.inference.predict ml/results/failure.png --out .verifex/model-outputs
+$run = '.verifex/balanced-training'
+$data = Join-Path $run 'data-320'
+$crops = Join-Path $run 'crops-320'
+$model = Join-Path $run 'candidate'
+python -m ml.scripts.prepare_mixed --aiforge $aiForgeRoot --tamperflow $tamperFlowRoot --doctamper $docTamperRoot --synthetic ml/datasets/synthetic --out $data --size 320
+python -m ml.scripts.prepare_paired_crops --data $data --aiforge $aiForgeRoot --synthetic ml/datasets/synthetic --out $crops --size 320
+$env:CUBLAS_WORKSPACE_CONFIG = ':4096:8'
+python -m ml.training.train_balanced --data $data --paired-crops $crops --out $model --batch 16 --epochs 10 --lr 0.001 --steps 180 --amp
+python -m ml.training.evaluate_model --data $data --model $model --out (Join-Path $run 'results')
+python -m ml.training.fit_assessment --data $data --model $model --out (Join-Path $model 'document_assessment.json')
 ~~~
 
-Add **--ocr** to the Random Forest command to use PaddleOCR line boxes. The recorded forest experiment used OpenCV text regions. Training uses CUDA when the installed PyTorch build exposes it and otherwise runs on CPU. Fonts can differ across operating systems. The manifest and checkpoint hashes identify the recorded run.
+This recipe trains a fresh checkpoint. The recorded run used a lower-resolution warm-up before fine-tuning at 320 pixels. The training script supports initialization from a compatible Balanced U-Net with `--init`. Threshold selection uses validation pages, and the evaluator measures the resulting checkpoint on the held-out test split. To test blending the same model's page and pixel scores, use `ml.training.calibrate_balanced` and evaluate its output with the same evaluator.
 
-For Google Colab, select a GPU runtime, clone this repository, change the notebook directory to the checkout, and run:
-
-~~~python
-!pip install -r backend/requirements.txt -r ml/requirements.txt
-!python -m ml.scripts.generate_synthetic_data --pairs 1000 --seed 427
-!python -m ml.scripts.prepare_dataset --size 128
-!python -m ml.training.train_segmenter --epochs 16 --batch 24 --threads 4
-!python -m ml.training.evaluate_model --select-threshold
-~~~
-
-To acquire an academic-use external sample after reviewing the dataset card:
-
-~~~powershell
-python -m ml.scripts.download_datasets --accept-noncommercial --per-class 8 --tiers C0
-python -m ml.training.evaluate_model --public ml/datasets/raw/tamperflow
-~~~
-
-## Evaluation and interpretation
-
-See [recorded metrics](results/metrics.json), [confusion matrix](results/confusion_matrix.png), [training curves](results/training_curves.png), and [precision–recall curve](results/precision_recall.png). Checkpoint selection used validation F1 and pixel Dice during training. The deployed image threshold was selected on validation by balanced accuracy, with lower false-positive rate as the tie-breaker. Test examples were reserved for evaluation. The API checks the checkpoint digest before serving its recorded metrics.
-
-The shipped model measured **57.0% accuracy, 63.6% precision, 32.7% recall, 0.432 F1, 0.581 ROC-AUC, and 0.141 pixel Dice** on 300 images from three unseen fictional layout families. It missed 101 of 150 altered images and flagged 28 of 150 genuine images. Localized regions can miss subtle edits or highlight printing and scanning artifacts. Scores are uncalibrated. The deterministic issuer and signature checks run independently.
-
-Compact U-Net had the strongest validation balanced accuracy of the three candidates and was the only candidate with a learned mask. On the synthetic test set, ResNet18 measured 50.3% accuracy and 33.3% false positives. The text-region forest measured 51.0% accuracy and 79.3% false positives. Its higher recall came with a large increase in false alarms.
-
-On the separate 16-image TamperFlow C0 sample, the U-Net measured **50.0% accuracy and 12.5% recall**, detecting one of eight altered images. This is an exploratory class-balanced sample of official-document images. It shows poor transfer from the synthetic certificates in this run and cannot estimate full-benchmark performance. [Kriyam TamperFlow dataset card](https://huggingface.co/datasets/kriyam-ai/kriyam-tamperflow).
-
-The [bundled synthetic sample manifest](samples/manifest.jsonl) identifies three original/altered pairs and their masks. Regenerate the full synthetic dataset with the commands above. Public benchmark images are excluded from the repository.
+Use the shipped checkpoint from the command line with `python -m ml.inference.predict path/to/document.pdf`. Add `--out .verifex/model-outputs` to save the per-page heatmaps and masks.

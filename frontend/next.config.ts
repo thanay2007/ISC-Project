@@ -6,6 +6,12 @@ const config: NextConfig = {
   poweredByHeader: false,
   turbopack: { root: process.cwd() },
   outputFileTracingRoot: process.cwd(),
+  async redirects() {
+    return [
+      { source: "/sign-up", destination: "/login", permanent: false },
+      { source: "/compare", destination: "/analyzer", permanent: false },
+    ];
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: api + "/api/:path*" }];
   },

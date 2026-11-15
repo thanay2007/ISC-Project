@@ -7,6 +7,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 
+from .analysis_orchestrator import assessment_for
 from .documents import png
 
 
@@ -28,33 +29,34 @@ def render_report(record, report, pages):
 
     line(f"Analysis {record['id']}  |  {record['created_at']}")
     line(f"Source file: {record['filename']}")
-    heading(f"Assessment: {report['outcome'].replace('_', ' ').title()}")
+    assessment = assessment_for(report)
+    if assessment["label"]:
+        heading(f"Assessment: {assessment['label']} | {assessment['confidence']}/100 confidence")
+    else:
+        heading("Assessment unavailable")
     line(report["explanation"]["summary"])
     heading("Cryptographic integrity")
     for key in ("record_status", "issuer", "certificate_ref", "uploaded_sha256", "registered_sha256", "sha256_match",
                 "record_signature_valid", "signature_valid", "revoked_at"):
         if key in report["crypto"]:
             line(f"{key.replace('_', ' ').title()}: {report['crypto'][key]}")
-    heading("Extracted fields and comparison")
+    heading("Extracted fields")
     if not report["fields"]:
         line("No labeled fields could be extracted.")
     for field, value in report["fields"].items():
         line(f"{field.replace('_', ' ').title()}: {value['value']} (page {value['page']})")
-    for difference in report["differences"]:
-        line(f"{difference['label']}: {difference['original'] or 'unreadable'} → {difference['uploaded'] or 'unreadable'}")
     heading("Custom AI forgery detection")
     custom = report["custom_model"]
     line(f"{custom['name']} | {custom['version']} | {custom['predicted_class']} | score {custom['risk_score']}" if custom["status"] == "complete"
          else custom.get("detail", "Model unavailable."))
     heading("Visual observations")
     findings = [*report["opencv"], *(report.get("gemini") or {}).get("observations", []), *custom.get("regions", [])]
-    differences = [item for summary in report["comparison"] for item in summary["regions"]]
-    for finding in [*findings, *differences]:
+    for finding in findings:
         line(f"Page {finding['page']} | {finding.get('kind', 'Gemini')}: {finding['finding']}")
-    if not findings and not differences:
+    if not findings:
         line("No visual regions were marked by the engines that ran.")
     for index, page in enumerate(pages, start=1):
-        marked = [item for item in [*findings, *differences] if item["page"] == index and item.get("box")]
+        marked = [item for item in findings if item["page"] == index and item.get("box")]
         if not marked:
             continue
         image = page.image.copy()
@@ -75,6 +77,5 @@ def render_report(record, report, pages):
     for limitation in [*report["limitations"], *report["warnings"], custom.get("limitations", "")]:
         if limitation:
             line(limitation)
-    line("The accompanying detached Ed25519 signature covers the exact PDF bytes.")
     doc.build(content)
     return result.getvalue()

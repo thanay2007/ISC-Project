@@ -12,10 +12,6 @@
 .local-preview { max-height: 380px; overflow: auto; padding: .5rem; border: 1px solid var(--border); border-radius: 8px; text-align: center; }
 .local-preview img, .local-preview canvas { display: block; max-width: 100%; margin: auto; }
 .local-preview .row { margin-top: .5rem; justify-content: center; }
-.compare-images { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .55rem; }
-.compare-images .eyebrow { margin-bottom: .45rem; font-size: 9px; }
-.slider { display: flex; align-items: center; justify-content: center; gap: .45rem; color: var(--muted); font-size: 11px; margin: .55rem 0; }
-.slider input { width: min(50%,320px); }
 .segmented { display: flex; flex-wrap: wrap; gap: .2rem; padding: .24rem; margin-bottom: .7rem; border: 1px solid #293d57; border-radius: 8px; background: #0a1323; }
 .segmented button { padding: .32rem .6rem; border-radius: 6px; color: var(--muted); text-transform: capitalize; font-size: 12px; }
 .segmented button[aria-pressed=true] { background: #20334e; color: #dff7ff; }
@@ -45,8 +41,7 @@
 .field-list > div { display: flex; justify-content: space-between; gap: .55rem; border-bottom: 1px solid #28354e; padding: .45rem 0; font-size: 12px; overflow-wrap: anywhere; }
 .field-list dd { text-align: right; }
 .field-list dt { color: var(--muted); }
-.difference-value { color: #ffd1a0; }
-.ocr-list, .ocr-text { margin-top: .45rem; max-height: 220px; overflow: auto; color: var(--muted); font-size: 11px; }
+.ocr-list { margin-top: .45rem; max-height: 220px; overflow: auto; color: var(--muted); font-size: 11px; }
 .ocr-line { display: flex; justify-content: space-between; width: 100%; gap: .5rem; text-align: left; padding: .35rem; border-bottom: 1px solid #253650; }
 .ocr-line:hover { background: #20304a; }
 .finding-list { list-style: none !important; padding: 0 !important; }
@@ -70,4 +65,3 @@
 .qr-panel { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
 .qr-panel img { width: 132px; height: 132px; border-radius: 7px; }
 .qr-panel > div { display: grid; justify-items: start; gap: .4rem; }
-@media(max-width: 420px) { .compare-images { grid-template-columns: 1fr; } }
