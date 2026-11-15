@@ -2,12 +2,24 @@
 set -e
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
+case "${1:-}" in
+    --local-database)
+        export DATABASE_URL=sqlite:///./.verifex/verifex.sqlite3
+        echo 'Using local SQLite at .verifex/verifex.sqlite3.'
+        shift
+        ;;
+esac
+if [[ $# -ne 0 ]]; then
+    echo 'Usage: bash ./run.sh [--local-database]' >&2
+    exit 2
+fi
+
 if [[ -f .venv/Scripts/python.exe ]]; then
     python=./.venv/Scripts/python.exe
 elif [[ -x .venv/bin/python ]]; then
     python=./.venv/bin/python
 else
-    echo 'Python virtual environment missing. Follow the local setup in README.md.' >&2
+    echo 'Python virtual environment missing. Follow the local setup in documentation/SETUP.md.' >&2
     exit 1
 fi
 

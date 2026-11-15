@@ -13,7 +13,7 @@ VERIFEX uses one Balanced U-Net checkpoint, `mixed-unet-v3`. It scores visual ev
 
 The run also used 5,586 matched crop views from the training pool. AIForge reserves its official test split and keeps matched genuine and edited pages together. TamperFlow keeps each document's C0, C2, and C4 compression views in the same split. DocTamper provides sampled LMDB pages for pixel supervision. Its test split contains altered pages only. Synthetic layouts stay together by template family. Dataset access and redistribution follow the respective source terms.
 
-AIForge performance is near chance, and the selected threshold flagged 68.6% of genuine AIForge pages and 45.5% of genuine TamperFlow pages. The model score is a review signal. See [per-dataset metrics](results/metrics.json), the [confusion matrix](results/confusion_matrix.png), the [training loss](results/training_curves.png), and the [precision–recall curve](results/precision_recall.png). The API serves recorded metrics when the checkpoint digest and classification threshold match.
+AIForge performance is near chance, and the selected threshold flagged 68.6% of genuine AIForge pages and 45.5% of genuine TamperFlow pages. The model score is a review signal. The API serves recorded metrics when the checkpoint digest and classification threshold match. [Per-dataset metrics](../ml/results/metrics.json) · [Confusion matrix](../ml/results/confusion_matrix.png) · [Training loss](../ml/results/training_curves.png) · [Precision–recall curve](../ml/results/precision_recall.png)
 
 ## Document verdict classifier
 
@@ -26,11 +26,11 @@ The app uses a separate classifier over the U-Net's page features, localization 
 | Balanced accuracy | 51.7% | 56.0% |
 | ROC-AUC | 0.526 | 0.568 |
 
-The real-world accuracy of the verdict depends on document type and capture quality. AIForge remains near chance at ROC-AUC 0.500. The displayed visual confidence describes distance from the decision threshold. Per-source results are stored in [the verdict classifier artifact](models/document_assessment.json).
+The real-world accuracy of the verdict depends on document type and capture quality. AIForge remains near chance at ROC-AUC 0.500. The displayed visual confidence describes distance from the decision threshold. [Per-source classifier results](../ml/models/document_assessment.json)
 
 ## Train and evaluate
 
-Install the [backend dependencies](../README.md) and the ML requirements. Obtain the full AIForge archive with authentic pairs, a TamperFlow snapshot with `metadata.jsonl`, and the approved DocTamper LMDB files. Set `$aiForgeRoot`, `$tamperFlowRoot`, and `$docTamperRoot` to the respective extracted directories before running these commands from the repository root.
+Install the backend dependencies and activate the Python virtual environment. Obtain the full AIForge archive with authentic pairs, a TamperFlow snapshot with `metadata.jsonl`, and the approved DocTamper LMDB files. Set `$aiForgeRoot`, `$tamperFlowRoot`, and `$docTamperRoot` to the respective extracted directories before running these commands from the repository root. [Setup guide](SETUP.md)
 
 ~~~powershell
 python -m pip install -r ml/requirements.txt lmdb
