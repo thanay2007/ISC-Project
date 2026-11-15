@@ -13,6 +13,8 @@ pillow>=11.3,<13
 opencv-contrib-python==4.10.0.84
 scikit-learn>=1.6,<2
 google-genai>=1.39,<3
+PyJWT[crypto]>=2.10,<3
+requests>=2.32,<3
 groq>=0.31,<2
 reportlab>=4.4,<5
 qrcode>=8.2,<9

@@ -5,7 +5,7 @@ import { type ReactNode } from "react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 import { human, dateText } from "@/lib/api";
-import type { Analysis, Audit } from "@/lib/types";
+import type { Analysis, Assessment, Audit } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 
 export function Brand() {
@@ -21,11 +21,17 @@ export function Panel({ title, hint, action, children, className = "" }: { title
 }
 
 export function Pill({ value }: { value?: string | null }) {
-  const tone = value && ["verified", "registered", "contributed", "complete", "valid", "pass", "ready"].includes(value) ? "good" :
-    value && ["failed", "modified", "revoked", "invalid_record", "access_denied", "invalid"].includes(value) ? "bad" :
+  const tone = value && ["original", "verified", "registered", "contributed", "complete", "valid", "pass", "ready"].includes(value) ? "good" :
+    value && ["fake", "failed", "modified", "revoked", "invalid_record", "access_denied", "invalid"].includes(value) ? "bad" :
     value && ["manual_review", "suspicious", "unverified", "unknown", "rate_limited", "unavailable"].includes(value) ? "warn" : "neutral";
-  const label = value === "modified" ? "Integrity mismatch" : value === "unverified" ? "Unverified" : human(value);
-  return <span className={"pill " + tone}><i />{label}</span>;
+  const label = human(value);
+  return <span className={"pill " + tone}><i />{label.charAt(0).toUpperCase() + label.slice(1)}</span>;
+}
+
+export function AssessmentTag({ assessment }: { assessment: Assessment }) {
+  if (!assessment.label) return null;
+  return <div className="assessment"><Pill value={assessment.label.toLowerCase()} />
+    {typeof assessment.confidence === "number" && <span>{assessment.confidence}/100 confidence</span>}</div>;
 }
 
 export function ErrorBox({ error }: { error: unknown }) {
@@ -43,19 +49,14 @@ export function Loading() {
 export function Drop({ file, onFile, compact = false }: { file: File | null; onFile: (file: File) => void; compact?: boolean }) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     maxFiles: 1, maxSize: 10 * 1024 * 1024,
-    accept: { "application/pdf": [".pdf"], "image/jpeg": [".jpg", ".jpeg"], "image/png": [".png"] },
+    accept: { "application/pdf": [".pdf"], "image/jpeg": [".jpg", ".jpeg"], "image/png": [".png"], "image/webp": [".webp"] },
     onDropAccepted: ([selected]) => onFile(selected),
-    onDropRejected: () => toast.error("Choose one PDF, PNG, or JPEG up to 10 MiB."),
+    onDropRejected: () => toast.error("Choose one PDF, PNG, JPEG, or WebP up to 10 MiB."),
   });
-  return <div {...getRootProps({ className: "dropzone " + (isDragActive ? "dragging " : "") + (compact ? "compact" : ""), "aria-label": "Choose a certificate file" })}>
+  return <div {...getRootProps({ className: "dropzone " + (isDragActive ? "dragging " : "") + (compact ? "compact" : ""), "aria-label": "Choose a document file" })}>
     <input {...getInputProps()} /><span className="drop-icon">{file ? <Check size={22} /> : <UploadCloud size={24} />}</span>
-    <div><strong>{file?.name || "Drop your document here"}</strong><p>{file ? (file.size / 1024).toFixed(1) + " KiB • Click to replace" : "Browse files  ·  PDF, PNG or JPEG up to 10 MiB"}</p></div>
+    <div><strong>{file?.name || "Drop your document here"}</strong><p>{file ? (file.size / 1024).toFixed(1) + " KiB • Click to replace" : "Browse files  ·  PDF, PNG, JPEG or WebP up to 10 MiB"}</p></div>
   </div>;
-}
-
-export function Consent({ value, setValue, text = "Allow Gemini to see document pages and Groq to process extracted evidence for this run." }:
-  { value: boolean; setValue: (next: boolean) => void; text?: string }) {
-  return <label className="consent"><input type="checkbox" checked={value} onChange={event => setValue(event.target.checked)} /><span>{text}</span></label>;
 }
 
 export function RunButton({ busy, children, disabled = false }: { busy: boolean; children: ReactNode; disabled?: boolean }) {
@@ -63,11 +64,12 @@ export function RunButton({ busy, children, disabled = false }: { busy: boolean;
 }
 
 export function AnalysisTable({ rows, filter }: { rows: Analysis[]; filter?: string }) {
-  const visible = rows.filter(row => !filter || [row.filename, row.outcome, row.id].some(value => value?.toLowerCase().includes(filter.toLowerCase())));
+  const visible = rows.filter(row => !filter || [row.filename, row.verdict, row.id].some(value => value?.toLowerCase().includes(filter.toLowerCase())));
   if (!visible.length) return <Empty>{filter ? "No matching analyses." : "Your analyses will appear here."}</Empty>;
   return <div className="table-wrap"><table><thead><tr><th>Document</th><th>Assessment</th><th>Created</th><th><span className="sr-only">Open</span></th></tr></thead>
     <tbody>{visible.map(row => <tr key={row.id}><td><Link href={"/analyzer?job=" + row.id} className="file-link"><FileScan size={16} />{row.filename}</Link></td>
-      <td><Pill value={row.outcome || row.stage} /></td><td>{dateText(row.created_at)}</td><td><Link href={"/analyzer?job=" + row.id} aria-label={"Open " + row.filename}><ArrowUpRight size={16} /></Link></td></tr>)}</tbody>
+      <td>{!row.verdict && row.stage === "complete" ? <span className="muted">Unavailable</span> : <Pill value={row.verdict?.toLowerCase() || row.stage} />}</td>
+      <td>{dateText(row.created_at)}</td><td><Link href={"/analyzer?job=" + row.id} aria-label={"Open " + row.filename}><ArrowUpRight size={16} /></Link></td></tr>)}</tbody>
   </table></div>;
 }
 

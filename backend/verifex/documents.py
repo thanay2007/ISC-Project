@@ -64,8 +64,10 @@ def decode(data: bytes) -> tuple[str, list[Page]]:
                     pages.append(Page(cv2.cvtColor(image, cv2.COLOR_RGB2BGR), lines))
                 return "application/pdf", pages
         with Image.open(BytesIO(data)) as src:
-            if src.format not in {"JPEG", "PNG"} or getattr(src, "n_frames", 1) != 1:
-                raise ValueError("Use a single-frame PNG, JPEG, or PDF.")
+            if src.format not in {"JPEG", "PNG", "WEBP"}:
+                raise ValueError(f"This file is a {src.format} image. Save it as a PDF, PNG, JPEG, or WebP and upload it again.")
+            if getattr(src, "n_frames", 1) != 1:
+                raise ValueError("This image has multiple frames. Export one frame as a still image, or save the frames as a PDF.")
             if src.width * src.height > MAX_PIXELS or min(src.size) < 16:
                 raise ValueError("Image dimensions exceed the allowed limits.")
             mime = Image.MIME[src.format]
@@ -77,7 +79,7 @@ def decode(data: bytes) -> tuple[str, list[Page]]:
                 image = Image.alpha_composite(white, rgba)
             return mime, [Page(cv2.cvtColor(np.asarray(image.convert("RGB")), cv2.COLOR_RGB2BGR), [])]
     except (UnidentifiedImageError, OSError, RuntimeError, OverflowError, Image.DecompressionBombError) as exc:
-        raise ValueError("The file could not be safely decoded as PDF, PNG, or JPEG.") from exc
+        raise ValueError("The file could not be safely read. Upload a valid PDF, PNG, JPEG, or WebP.") from exc
 
 
 def clamp_box(box, width, height):

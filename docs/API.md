@@ -5,11 +5,12 @@ Open [Swagger UI](http://localhost:3000/api/docs) or [OpenAPI JSON](http://local
 | Routes | Access and behavior |
 | --- | --- |
 | POST /api/auth/register, /api/auth/login, /api/auth/logout and GET /api/auth/me | Session management. Registration creates a verifier. |
-| POST /api/analyses | Signed-in. Multipart file, optional certificate_ref and external_ai. Returns HTTP 202 and the job ID. |
+| POST /api/analyses | Signed-in. Multipart file. Runs Gemini and Groq automatically when configured. Returns HTTP 202 and the job ID. |
+| POST /api/analyses/{job}/reanalyze | Signed-in owner. Queues a new analysis of the saved upload and keeps the previous report. Returns HTTP 202 and the new job ID. |
 | GET /api/analyses and /api/analyses/{job} | Owner only. Lists history or returns the analysis and its evidence. |
 | GET /api/analyses/{job}/events | Owner only. Ordered stage events via SSE. A reconnect can replay events. |
-| GET /api/analyses/{job}/pages/{page} | Owner only. Sanitized 1-based page PNG. Set layer to uploaded, processed, heatmap, mask, original, or difference. Original layers require authorized comparison. |
-| POST /api/analyses/{job}/assistant | Owner only. JSON question and optional external_ai. Provider use also requires consent on the analysis. |
+| GET /api/analyses/{job}/pages/{page} | Owner only. Sanitized 1-based page PNG. Set layer to uploaded, processed, heatmap, or mask. |
+| POST /api/analyses/{job}/assistant | Owner only. JSON question. Uses Groq automatically when configured. |
 | GET /api/analyses/{job}/report.pdf | Owner only. Signed PDF. Set ?signature=true for the detached signature. |
 | POST /api/reports/verify | Public. Multipart report file and hexadecimal signature. |
 | POST /api/certificates, GET /api/certificates and POST /api/certificates/{ref}/revoke | Issuer or administrator. Upload a multipart file to sign it. |
@@ -25,7 +26,7 @@ Example in PowerShell:
 
 ~~~powershell
 curl.exe -c cookies.txt -H "X-Verifex-Request: 1" -H "Content-Type: application/json" --data-binary "@login.json" http://localhost:3000/api/auth/login
-curl.exe -b cookies.txt -H "X-Verifex-Request: 1" -F "file=@sample.pdf" -F "external_ai=false" http://localhost:3000/api/analyses
+curl.exe -b cookies.txt -H "X-Verifex-Request: 1" -F "file=@sample.pdf" http://localhost:3000/api/analyses
 curl.exe -N -b cookies.txt http://localhost:3000/api/analyses/JOB_ID/events
 ~~~
 

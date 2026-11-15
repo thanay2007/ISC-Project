@@ -3,7 +3,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, LargeBinary, String, Text, create_engine, event
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -27,6 +28,8 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=identifier)
     email: Mapped[str] = mapped_column(String(254), unique=True)
+    google_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    clerk_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     password: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(String(120))
     role: Mapped[str] = mapped_column(String(16), default="verifier")
@@ -85,12 +88,35 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
 
+def normalize_database_url(value: str) -> URL:
+    if not value.strip():
+        raise ValueError("Set DATABASE_URL in .env using the Supabase Session pooler connection string.")
+    try:
+        url = make_url(value.strip())
+    except (ArgumentError, ValueError):
+        raise ValueError("DATABASE_URL must be a valid PostgreSQL or SQLite connection string.") from None
+
+    if url.drivername in {"postgres", "postgresql"}:
+        url = url.set(drivername="postgresql+psycopg")
+    if url.get_backend_name() not in {"postgresql", "sqlite"}:
+        raise ValueError("DATABASE_URL must be a PostgreSQL or SQLite connection string.")
+
+    if (url.host or "").lower().endswith((".supabase.co", ".pooler.supabase.com")):
+        if url.drivername != "postgresql+psycopg" or url.port not in {None, 5432}:
+            raise ValueError("Use the Supabase Session pooler or Direct connection on port 5432 with psycopg.")
+        if url.query.get("sslmode", "require") not in {"require", "verify-ca", "verify-full"}:
+            raise ValueError("Supabase DATABASE_URL requires sslmode=require or certificate verification.")
+        url = url.update_query_dict({"sslmode": url.query.get("sslmode", "require"),
+                                     "connect_timeout": url.query.get("connect_timeout", "10")})
+    return url
+
+
 def connect(url: str):
-    parsed = make_url(url)
+    parsed = normalize_database_url(url)
     sqlite = parsed.get_backend_name() == "sqlite"
     if sqlite and parsed.database and parsed.database != ":memory:":
         Path(parsed.database).resolve().parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = create_engine(parsed, pool_pre_ping=True)
     if sqlite:
         @event.listens_for(engine, "connect")
         def configure_sqlite(connection, _):

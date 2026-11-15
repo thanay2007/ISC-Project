@@ -23,12 +23,23 @@ FIELD_PATTERNS = {
     "marks": r"(?:marks|score)",
     "issue_date": r"(?:issue(?:d)? date|date of issue|date)",
     "signatory": r"(?:signatory|signed by)",
+    "account_number": r"(?:account|customer|consumer)\s*(?:no\.?|number|id)",
+    "document_number": r"(?:bill|invoice|receipt|statement|document)\s*(?:no\.?|number|id|#)",
+    "provider": r"(?:service provider|supplier|vendor|merchant|billed by|issued by)",
+    "customer_name": r"(?:customer name|account holder|bill(?:ed)? to|recipient)",
+    "billing_period": r"(?:billing period|statement period|service period)",
+    "due_date": r"(?:due date|payment due date|pay by)",
+    "amount_due": r"(?:total amount due|amount due|balance due|total due|amount payable|total amount|grand total|total)",
+    "service_address": r"(?:service address|billing address|delivery address|address)",
 }
 ALIASES = {
     "grade": "Grade", "marks": "Marks", "student_name": "Student name",
     "institution_name": "Institution", "certificate_id": "Certificate ID",
     "roll_number": "Roll number", "course": "Course", "issue_date": "Issue date",
     "signatory": "Signatory",
+    "account_number": "Account number", "document_number": "Document number", "provider": "Provider",
+    "customer_name": "Customer name", "billing_period": "Billing period", "due_date": "Due date",
+    "amount_due": "Amount due", "service_address": "Service address",
 }
 
 
@@ -69,24 +80,21 @@ class OCR:
     def extract(self, page: Page) -> tuple[list, str, list]:
         warnings = []
         if self.engine in {"paddle", "auto"}:
-            if self.paddle is None and not self.warming:
+            if self.paddle is None and not (self.warming and page.text):
                 self.warm()
             if self.paddle is not None:
                 try:
-                    with self.lock:
-                        result = next(iter(self.paddle.predict(page.image)))
-                    height, width = page.image.shape[:2]
-                    lines = []
-                    for text, score, polygon in zip(result["rec_texts"], result["rec_scores"], result["rec_polys"]):
-                        if score < .25 or not str(text).strip():
-                            continue
-                        xy = np.asarray(polygon)
-                        box = [*xy.min(axis=0), *xy.max(axis=0)]
-                        lines.append({"text": str(text)[:1000], "confidence": round(float(score), 3),
-                                      "box": clamp_box(box, width, height)})
-                    if lines:
-                        return lines[:250], "PaddleOCR", warnings
-                    warnings.append("PaddleOCR found no readable text.")
+                    lines = self._paddle_lines(page.image)
+                    if not self._readable(lines):
+                        try:
+                            enhanced = self._paddle_lines(self._enhance_scan(page.image))
+                            lines = max((lines, enhanced), key=self._readability)
+                        except Exception:
+                            LOG.warning("PaddleOCR enhanced pass failed", exc_info=True)
+                            warnings.append("Enhanced scan OCR was unavailable.")
+                    if lines and (not page.text or self._readable(lines)):
+                        return lines, "PaddleOCR", warnings
+                    warnings.append("PaddleOCR found limited readable text.")
                 except Exception:
                     LOG.warning("PaddleOCR inference failed", exc_info=True)
                     warnings.append("PaddleOCR inference failed.")
@@ -102,6 +110,33 @@ class OCR:
         if page.text:
             return page.text, "PDF text layer", warnings
         return [], "No text engine result", warnings + ["No text was extracted from this page."]
+
+    @staticmethod
+    def _readability(lines):
+        return sum(sum(char.isalnum() for char in line["text"]) * line["confidence"] ** 2 for line in lines)
+
+    def _readable(self, lines):
+        return self._readability(lines) >= 20 and np.median([line["confidence"] for line in lines]) >= .7
+
+    @staticmethod
+    def _enhance_scan(image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        background = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
+        corrected = cv2.divide(gray, np.maximum(background, 1), scale=255)
+        return cv2.cvtColor(cv2.createCLAHE(2., (8, 8)).apply(corrected), cv2.COLOR_GRAY2BGR)
+
+    def _paddle_lines(self, image):
+        with self.lock:
+            result = next(iter(self.paddle.predict(image)))
+        height, width = image.shape[:2]
+        lines = []
+        for text, score, polygon in zip(result["rec_texts"], result["rec_scores"], result["rec_polys"]):
+            if score < .45 or not str(text).strip():
+                continue
+            xy = np.asarray(polygon)
+            lines.append({"text": str(text).strip()[:1000], "confidence": round(float(score), 3),
+                          "box": clamp_box([*xy.min(axis=0), *xy.max(axis=0)], width, height)})
+        return lines[:250]
 
     def _tesseract(self, image):
         result = subprocess.run([self.tesseract, "stdin", "stdout", "--psm", "11", "tsv"],
@@ -132,6 +167,8 @@ def fields_for(lines):
             if not match or field in fields:
                 continue
             value = match[1].strip()
+            if re.fullmatch(r"\(\s*in (?:block|capital) letters\s*\)", value, re.IGNORECASE):
+                value = ""
             box = line["box"]
             if not value:
                 candidates = [other for other in ordered if other["page"] == line["page"]
@@ -145,14 +182,25 @@ def fields_for(lines):
     return fields
 
 
+def normalized_field(value):
+    return " ".join(value.casefold().split()) if value else ""
+
+
 def compare_fields(original, uploaded):
     differences = []
     for name in FIELD_PATTERNS:
         before, after = original.get(name), uploaded.get(name)
         a, b = (field["value"] if field else None for field in (before, after))
-        normalize = lambda value: " ".join(value.casefold().split()) if value else ""
-        if normalize(a) != normalize(b):
+        if normalized_field(a) != normalized_field(b):
             differences.append({"field": name, "label": ALIASES[name], "original": a, "uploaded": b,
                                 "kind": "changed" if a and b else "missing_or_unreadable",
                                 "page": after["page"] if after else None, "box": after["box"] if after else None})
     return differences
+
+
+def field_agreement(fields, gemini):
+    if not gemini:
+        return {}
+    extracted = gemini.get("extracted_fields", {})
+    return {name: normalized_field(field["value"]) == normalized_field(extracted[name])
+            for name, field in fields.items() if extracted.get(name)}

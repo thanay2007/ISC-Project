@@ -5,13 +5,13 @@ import { AnalyzerPage } from "@/components/analyzer";
 import { DashboardPage, HistoryPage, IssuePage, VerifyPage } from "@/components/operations";
 import { AssistantPage, ReportsPage } from "@/components/reports-assistant";
 import { DemoPage, InstitutionsPage, SecurityPage } from "@/components/admin-demo";
-import { ModelPage, SettingsPage } from "@/components/model-settings";
+import { ModelPage } from "@/components/model-settings";
 import { Loading } from "@/components/ui";
 
 const pages = {
-  dashboard: DashboardPage, analyzer: AnalyzerPage, compare: () => <AnalyzerPage comparison />, assistant: AssistantPage,
+  dashboard: DashboardPage, analyzer: AnalyzerPage, assistant: AssistantPage,
   history: HistoryPage, reports: ReportsPage, issue: IssuePage, security: SecurityPage, demo: DemoPage,
-  institutions: InstitutionsPage, admin: () => <InstitutionsPage admin />, "model-performance": ModelPage, settings: SettingsPage,
+  institutions: InstitutionsPage, admin: () => <InstitutionsPage admin />, "model-performance": ModelPage,
 };
 
 export default async function Workspace({ params }: { params: Promise<{ route: string[] }> }) {
@@ -21,5 +21,7 @@ export default async function Workspace({ params }: { params: Promise<{ route: s
   }
   if (reference || !Object.hasOwn(pages, name)) notFound();
   const Page = pages[name as keyof typeof pages];
-  return <Shell publicPage={name === "model-performance"}><Suspense fallback={<Loading />}><Page /></Suspense></Shell>;
+  return <Shell publicPage={name === "model-performance"} adminOnly={name === "admin" || name === "institutions"}>
+    <Suspense fallback={<Loading />}><Page /></Suspense>
+  </Shell>;
 }

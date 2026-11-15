@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from base64 import b64decode
 from collections import Counter
 from contextlib import asynccontextmanager
@@ -16,8 +17,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer
 
-from . import groq_service
-from .analysis_orchestrator import STAGES, TERMINAL, Analyzer, local_summary, progress, provider_evidence, snapshot
+from . import clerk_auth, groq_service
+from .analysis_orchestrator import (
+    LIMITS, STAGES, TERMINAL, Analyzer, assessment_for, local_summary, outcome_for, progress,
+    provider_evidence, published_outcome, snapshot, verdict_label,
+)
 from .config import ROOT, Settings
 from .crypto_service import Vault, fingerprint, qr_png, verify
 from backend.app.services.custom_forgery_model import CustomForgeryModel
@@ -25,17 +29,18 @@ from .db import Analysis, Certificate, Event, Session, User, connect, identifier
 from .documents import MAX_BYTES, decode, png, read_upload, safe_name, upload_document
 from .issuance import demo_pdf, integrity, register
 from .migrate import upgrade
-from .ocr_service import OCR
-from .opencv_service import compare_images
+from .ocr_service import OCR, field_agreement
 from .reports import render_report
-from .security import (COOKIE, PASSWORDS, Login, Registration, audit, current_user, db_session, deny,
-                       event_row, login_attempt, network, new_session, require_role, user_info)
+from .security import (COOKIE, DUMMY, GUEST_SESSION_SECONDS, LOCAL_ADMIN_EMAIL, LOCAL_ADMIN_HASH, PASSWORDS,
+                       AdminLogin, Login, Registration, audit, current_user, db_session, deny, event_row,
+                       local_admin_allowed, login_attempt, network, new_session, require_role, session_user, user_info)
 
 LOG = logging.getLogger(__name__)
 DB = Annotated[object, Depends(db_session)]
 Actor = Annotated[User, Depends(current_user)]
 Admin = Annotated[User, Depends(require_role("admin"))]
 Issuer = Annotated[User, Depends(require_role("institution", "admin"))]
+Analyst = Annotated[User, Depends(require_role("verifier", "institution", "admin"))]
 DEMO_EMAIL = "quillspire-issuer@verifex.invalid"
 MODEL_DIR = ROOT / "ml/models"
 RESULTS_DIR = ROOT / "ml/results"
@@ -61,23 +66,24 @@ def demo_seed(sessions, vault):
                 register(db, vault, issuer, data, demo=True)
 
 
-def add_job(request, db, actor, data, mime, filename, ref=None, comparison=False, consent=False, demo=False):
+def add_job(request, db, actor, data, mime, filename, ref=None, demo=False):
     open_jobs = db.scalar(select(func.count()).select_from(Analysis).where(
         Analysis.owner_id == actor.id, Analysis.stage.not_in(TERMINAL)))
     if open_jobs >= 4:
         raise HTTPException(429, "Wait for an analysis to finish before adding another.")
-    if consent:
-        last_hour = db.scalar(select(func.count()).select_from(Analysis).where(
-            Analysis.owner_id == actor.id, Analysis.external_ai.is_(True), Analysis.created_at >= now() - timedelta(hours=1)))
-        if last_hour >= 12:
-            raise HTTPException(429, "The hourly external AI limit has been reached. Local analysis is available.")
+    settings = request.app.state.settings
+    external_ai = bool((settings.gemini_key and settings.gemini_model) or (settings.groq_key and settings.groq_model))
+    if external_ai:
+        rate_check(db, actor, "analysis_external", 12, 60)
     job, date = identifier(), now()
     row = Analysis(id=job, owner_id=actor.id, filename=filename, mime=mime, created_at=date,
                    source=request.app.state.vault.seal(data, f"analysis:{job}"), certificate_ref=ref,
-                   compare_allowed=comparison, external_ai=consent, demo=demo, stage="queued",
+                   external_ai=True, demo=demo, stage="queued",
                    progress=[progress("queued", date)])
     db.add(row)
     audit(db, "analysis_submitted", "Queued for forensic analysis", actor.id, job, network(request))
+    if external_ai:
+        audit(db, "analysis_external", "Queued an analysis with external providers", actor.id, job, network(request))
     db.commit()
     request.app.state.analyzer.wake.set()
     return snapshot(row)
@@ -100,7 +106,13 @@ def analysis_owned(request, db, user, job, report=False, source=False):
 def get_report(request, row):
     if row.stage != "complete" or row.report is None:
         raise HTTPException(409, "The analysis report is not ready.")
-    return json.loads(request.app.state.vault.open(row.report, f"report:{row.id}"))
+    report = json.loads(request.app.state.vault.open(row.report, f"report:{row.id}"))
+    outcome = outcome_for(report["crypto"], report["custom_model"], report.get("gemini"))
+    if report["outcome"] != outcome or report["limitations"] != list(LIMITS):
+        report["outcome"] = outcome
+        report["explanation"] = local_summary(outcome, report["opencv"], report["custom_model"])
+    report["limitations"] = list(LIMITS)
+    return report
 
 
 def preview_for(request, row):
@@ -129,11 +141,6 @@ def image_response(value):
 
 class Question(BaseModel):
     question: str = Field(min_length=2, max_length=750)
-    external_ai: bool = False
-
-
-class Consent(BaseModel):
-    external_ai: bool = False
 
 
 class InstitutionChange(BaseModel):
@@ -152,10 +159,9 @@ def local_answer(question, report):
         return "An unsigned certificate can be genuine. Ask the issuer to corroborate it independently."
     if "signature" in question:
         return "Ed25519 checks whether the issuer signed this fingerprint and record metadata. " + report["explanation"]["summary"]
-    if any(term in question for term in ("field", "changed", "difference", "grade")):
-        changes = [f"{item['label']}: {item['original'] or 'unreadable'} → {item['uploaded'] or 'unreadable'}"
-                   for item in report["differences"]]
-        return "; ".join(changes) if changes else "No differences between authorized OCR fields were recorded."
+    if "field" in question or "extract" in question:
+        fields = [f"{key.replace('_', ' ').capitalize()}: {item['value']}" for key, item in report["fields"].items()]
+        return ". ".join(fields) if fields else "No labeled fields were extracted by OCR."
     if any(term in question for term in ("visual", "pattern", "opencv")):
         return " ".join(item["finding"] for item in report["opencv"][:5]) or "OpenCV did not mark a visual review region."
     return report["explanation"]["detailed"]
@@ -166,13 +172,22 @@ def create_app(settings: Settings | None = None):
 
     @asynccontextmanager
     async def lifespan(app):
+        if settings.clerk_enabled:
+            clerk_auth.verifier(settings.clerk_publishable_key)
         engine, sessions = connect(settings.database_url)
         vault = Vault(settings.validate(), settings.app_secret)
         upgrade(engine)
         app.state.sessions, app.state.vault = sessions, vault
         app.state.settings = settings
+        if settings.local_admin_enabled:
+            with sessions.begin() as db:
+                if not db.scalar(select(User.id).where(User.email == LOCAL_ADMIN_EMAIL)):
+                    user = User(id=identifier(), email=LOCAL_ADMIN_EMAIL, name="VERIFEX Administrator",
+                                password=LOCAL_ADMIN_HASH, role="admin")
+                    user.signing_key, user.public_key = vault.issuer_keys(user.id)
+                    db.add(user)
         if settings.admin_email and settings.admin_password:
-            if len(settings.admin_password) < 12 or settings.admin_email == DEMO_EMAIL:
+            if len(settings.admin_password) < 12 or settings.admin_email in {DEMO_EMAIL, LOCAL_ADMIN_EMAIL}:
                 raise ValueError("Choose a unique ADMIN_EMAIL and an ADMIN_PASSWORD of at least 12 characters.")
             with sessions.begin() as db:
                 if not db.scalar(select(User.id).where(User.email == settings.admin_email)):
@@ -228,12 +243,17 @@ def create_app(settings: Settings | None = None):
     @app.get("/api/health")
     def health(request: Request):
         return {"status": "ok", "demo_enabled": settings.demo_enabled,
+                "clerk_publishable_key": settings.clerk_publishable_key if settings.clerk_enabled else None,
+                "local_admin_login": local_admin_allowed(request),
                 "model_loaded": request.app.state.custom.model is not None,
+                "document_classifier_loaded": request.app.state.custom.assessment is not None,
                 "paddle_status": "ready" if request.app.state.ocr.paddle is not None else
                 "warming" if request.app.state.ocr.warming else "unavailable"}
 
     @app.post("/api/auth/register", status_code=201)
     def register_user(request: Request, response: Response, payload: Registration, db: DB):
+        if settings.clerk_enabled:
+            raise HTTPException(403, "Use the VERIFEX sign-in page to access your account.")
         if payload.email.endswith("@verifex.invalid"):
             raise HTTPException(422, "Choose another email address.")
         client_network = network(request)
@@ -258,6 +278,18 @@ def create_app(settings: Settings | None = None):
         new_session(request, response, db, user)
         return user_info(user)
 
+    @app.post("/api/auth/admin/login")
+    def admin_login(request: Request, response: Response, payload: AdminLogin, db: DB):
+        if not local_admin_allowed(request):
+            raise HTTPException(404, "Local administrator login is unavailable.")
+        email = LOCAL_ADMIN_EMAIL if payload.username == "admin" else "unknown-admin@verifex.invalid"
+        user = login_attempt(request, db, Login(email=email, password=payload.password), local_admin=True)
+        if user.role != "admin":
+            deny(request, db, user, None, "Local administrator role was missing")
+        audit(db, "login_succeeded", "Signed in as local administrator", user.id, network_id=network(request))
+        new_session(request, response, db, user)
+        return user_info(user)
+
     @app.post("/api/auth/logout")
     def logout(request: Request, response: Response, db: DB):
         token = request.cookies.get(COOKIE)
@@ -271,16 +303,37 @@ def create_app(settings: Settings | None = None):
     def me(actor: Actor):
         return user_info(actor)
 
+    @app.post("/api/auth/guest")
+    def guest_workspace(request: Request, response: Response, db: DB):
+        user = session_user(request, db)
+        if user is not None:
+            return user_info(user)
+        client_network = network(request)
+        created = db.scalar(select(func.count()).select_from(Event).where(
+            Event.kind == "guest_created", Event.network == client_network,
+            Event.created_at >= now() - timedelta(hours=1)))
+        if created >= 12:
+            raise HTTPException(429, "Guest workspace limit reached. Try again later.")
+        guest_id = identifier()
+        user = User(id=guest_id, name="Guest", email=f"guest-{guest_id}@verifex.invalid", password=DUMMY, role="guest")
+        db.add(user)
+        audit(db, "guest_created", "Guest workspace created", user.id, network_id=client_network)
+        new_session(request, response, db, user, max_age=GUEST_SESSION_SECONDS)
+        return user_info(user)
+
     @app.post("/api/analyses", status_code=202)
-    def submit(request: Request, actor: Actor, db: DB, file: UploadFile = File(),
-               certificate_ref: str = Form("", max_length=32), external_ai: bool = Form(False)):
-        record = db.get(Certificate, certificate_ref.strip()) if certificate_ref.strip() else None
-        if certificate_ref.strip() and record is None:
-            raise HTTPException(404, "Certificate reference does not exist.")
-        allowed = bool(record and (record.issuer_id == actor.id or actor.role == "admin"))
+    def submit(request: Request, actor: Analyst, db: DB, file: UploadFile = File()):
         data, mime, _ = upload_document(file)
-        return add_job(request, db, actor, data, mime, safe_name(file.filename),
-                       ref=record.ref if record else None, comparison=allowed, consent=external_ai)
+        return add_job(request, db, actor, data, mime, safe_name(file.filename))
+
+    @app.post("/api/analyses/{job}/reanalyze", status_code=202)
+    def reanalyze(request: Request, actor: Analyst, db: DB, job: str):
+        row = analysis_owned(request, db, actor, job, source=True)
+        if row.stage not in TERMINAL:
+            raise HTTPException(409, "Wait for this analysis to finish.")
+        data = request.app.state.vault.open(row.source, f"analysis:{job}")
+        return add_job(request, db, actor, data, row.mime, row.filename, ref=row.certificate_ref if row.demo else None,
+                       demo=row.demo)
 
     @app.get("/api/analyses")
     def history(actor: Actor, db: DB):
@@ -293,15 +346,25 @@ def create_app(settings: Settings | None = None):
         row = analysis_owned(request, db, actor, job, report=True)
         report = get_report(request, row) if row.stage == "complete" else None
         if report:
-            report.pop("model_layers", None)
-        return {**snapshot(row), "preview": preview_for(request, row), "result": report}
+            report["assessment"] = assessment_for(report)
+            report["field_agreement"] = field_agreement(report["fields"], report["gemini"])
+            for key in ("model_layers", "original_fields", "original_ocr", "original_pages",
+                        "comparison", "differences", "gemini_discrepancies"):
+                report.pop(key, None)
+            if report["gemini"]:
+                report["gemini"].pop("comparison_summary", None)
+        state = snapshot(row)
+        if report:
+            state.update(outcome=report["outcome"], verdict=report["assessment"]["label"])
+        return {**state, "preview": preview_for(request, row), "result": report}
 
     @app.get("/api/analyses/{job}/events")
     async def stream(request: Request, actor: Actor, db: DB, job: str):
         analysis_owned(request, db, actor, job)
         db.close()
         sessions = request.app.state.sessions
-        session_id = request.state.session_hash
+        session_id = getattr(request.state, "session_hash", None)
+        clerk_expires = getattr(request.state, "clerk_expires_at", None)
 
         async def events():
             cursor = 0
@@ -309,10 +372,15 @@ def create_app(settings: Settings | None = None):
             for tick in range(300):
                 if await request.is_disconnected():
                     break
+                if clerk_expires is not None and time.time() >= clerk_expires:
+                    break
                 with sessions() as current:
-                    active = current.get(Session, session_id)
+                    if session_id is not None:
+                        active = current.get(Session, session_id)
+                        if not active or active.expires_at <= now():
+                            break
                     row = current.get(Analysis, job, options=[defer(Analysis.source), defer(Analysis.report)])
-                    if not active or active.expires_at <= now() or row is None:
+                    if row is None:
                         break
                     updates = row.progress[cursor:]
                     terminal = row.stage in TERMINAL
@@ -333,7 +401,7 @@ def create_app(settings: Settings | None = None):
 
     @app.get("/api/analyses/{job}/pages/{page}")
     def page_preview(request: Request, actor: Actor, db: DB, job: str, page: int,
-                     layer: Literal["uploaded", "original", "difference", "heatmap", "mask", "processed"] = "uploaded"):
+                     layer: Literal["uploaded", "heatmap", "mask", "processed"] = "uploaded"):
         row = analysis_owned(request, db, actor, job, source=layer not in {"heatmap", "mask"})
         vault = request.app.state.vault
         if page < 1:
@@ -352,17 +420,6 @@ def create_app(settings: Settings | None = None):
                 return image_response(png(regenerated[0][layer]))
             raise HTTPException(409, "A model overlay is unavailable for this analysis.")
         _, pages = decode(vault.open(row.source, f"analysis:{job}"))
-        if layer in {"original", "difference"}:
-            if not row.compare_allowed or not row.certificate_ref:
-                deny(request, db, actor, row.id, "Attempted to render an unavailable original")
-            record = db.get(Certificate, row.certificate_ref)
-            originals = decode(vault.open(record.original, f"certificate:{record.ref}"))[1]
-            if page > len(originals):
-                raise HTTPException(404, "Original page does not exist.")
-            if layer == "original":
-                return image_response(png(originals[page-1].image))
-            if page <= len(pages):
-                return image_response(png(compare_images(originals[page-1].image, pages[page-1].image, page)[1]))
         if page > len(pages):
             raise HTTPException(404, "Page does not exist.")
         source = pages[page-1]
@@ -390,12 +447,11 @@ def create_app(settings: Settings | None = None):
     def assistant(request: Request, actor: Actor, db: DB, job: str, payload: Question):
         row = analysis_owned(request, db, actor, job, report=True)
         report = get_report(request, row)
-        answer, meta = None, {"status": "consent_required"}
-        if payload.external_ai and row.external_ai:
+        if settings.groq_key and settings.groq_model:
             rate_check(db, actor, "assistant_external", 20, 60)
             audit(db, "assistant_external", "Requested Groq analysis explanation", actor.id, row.id, network(request))
             db.commit()
-            answer, meta = groq_service.explain(settings, provider_evidence(report), groq_service.Answer, payload.question)
+        answer, meta = groq_service.explain(settings, provider_evidence(report), groq_service.Answer, payload.question)
         return {"answer": answer["answer"] if answer else local_answer(payload.question, report),
                 "source": "Groq" if answer else "local", "engine": meta}
 
@@ -487,24 +543,28 @@ def create_app(settings: Settings | None = None):
     def dashboard(actor: Actor, db: DB):
         rows = db.execute(select(Analysis.id, Analysis.filename, Analysis.outcome, Analysis.stage, Analysis.created_at)
                           .where(Analysis.owner_id == actor.id).order_by(Analysis.created_at.desc())).all()
-        counts = Counter(row.outcome for row in rows if row.outcome)
+        counts = Counter(published_outcome(row.outcome) for row in rows if row.outcome)
         dates = [(now() - timedelta(days=index)).date().isoformat() for index in reversed(range(7))]
-        trends = {day: {"day": day, "analyzed": 0, "verified": 0} for day in dates}
+        verdict_counts = Counter(verdict_label(row.outcome) for row in rows if row.outcome)
+        trends = {day: {"day": day, "analyzed": 0, "verified": 0, "original": 0} for day in dates}
         for row in rows:
             key = row.created_at.date().isoformat()
             if key in trends and row.stage == "complete":
                 trends[key]["analyzed"] += 1
                 trends[key]["verified"] += int(row.outcome == "verified")
+                trends[key]["original"] += int(verdict_label(row.outcome) == "Original")
         alerts_query = select(Event).where(Event.kind.in_(["access_denied", "suspicious_upload", "login_failed"]))
         if actor.role != "admin":
             alerts_query = alerts_query.where(Event.actor_id == actor.id)
         alerts = db.scalars(alerts_query.order_by(Event.created_at.desc()).limit(8))
         return {"counts": {"analyzed": sum(counts.values()), **counts,
+                           "original": verdict_counts["Original"], "fake": verdict_counts["Fake"],
                            "signature_failures": counts["modified"],
                            "institutions": db.scalar(select(func.count()).select_from(User)
                                                      .where(User.role == "institution", User.email != DEMO_EMAIL))},
                 "trends": list(trends.values()),
-                "recent": [{**row._asdict(), "created_at": timestamp(row.created_at)} for row in rows[:6]],
+                "recent": [{**row._asdict(), "outcome": published_outcome(row.outcome), "verdict": verdict_label(row.outcome),
+                            "created_at": timestamp(row.created_at)} for row in rows[:6]],
                 "alerts": [event_row(item) for item in alerts]}
 
     @app.get("/api/security")
@@ -523,9 +583,7 @@ def create_app(settings: Settings | None = None):
         return {"events": [event_row(item) for item in events], "counts": counts, "signals": signals}
 
     @app.post("/api/security/summary")
-    def security_summary(request: Request, actor: Admin, db: DB, payload: Consent):
-        if not payload.external_ai:
-            raise HTTPException(422, "Authorize external processing to request an AI summary.")
+    def security_summary(request: Request, actor: Admin, db: DB):
         rate_check(db, actor, "security_summary_external", 10, 60)
         evidence = security(actor, db)
         evidence.pop("events")
@@ -539,12 +597,13 @@ def create_app(settings: Settings | None = None):
 
     @app.get("/api/admin/users")
     def users(_actor: Admin, db: DB):
-        return [user_info(item) for item in db.scalars(select(User).where(User.email != DEMO_EMAIL).order_by(User.email).limit(250))]
+        accounts = select(User).where(User.email != DEMO_EMAIL, User.role != "guest").order_by(User.email).limit(250)
+        return [user_info(item) for item in db.scalars(accounts)]
 
     @app.post("/api/admin/users/{user_id}/role")
     def change_role(request: Request, actor: Admin, db: DB, user_id: str, payload: InstitutionChange):
         user = db.get(User, user_id)
-        if not user or user.email == DEMO_EMAIL or user.role == "admin":
+        if not user or user.email == DEMO_EMAIL or user.role in {"admin", "guest"}:
             raise HTTPException(404, "A manageable account was not found.")
         if user.role != payload.role:
             if payload.role == "institution" and not user.signing_key:
@@ -568,7 +627,7 @@ def create_app(settings: Settings | None = None):
 
     @app.post("/api/demo/{scenario}", status_code=202)
     def run_demo(request: Request, actor: Actor, db: DB,
-                 scenario: Literal["genuine", "modified", "unknown", "failure", "reset"], payload: Consent):
+                 scenario: Literal["genuine", "modified", "unknown", "failure", "reset"]):
         record = demo_record(db)
         if scenario == "reset":
             db.execute(delete(Analysis).where(Analysis.owner_id == actor.id, Analysis.demo.is_(True)))
@@ -584,9 +643,8 @@ def create_app(settings: Settings | None = None):
             record = db.scalar(select(Certificate).where(Certificate.demo.is_(True), Certificate.fingerprint == digest))
         else:
             data, mime = demo_pdf(scenario), "application/pdf"
-        compare = record is not None and scenario in {"genuine", "modified", "failure"}
         return add_job(request, db, actor, data, mime, f"demo-{scenario}." + ("png" if scenario == "failure" else "pdf"),
-                       ref=record.ref if compare else None, comparison=compare, consent=payload.external_ai, demo=True)
+                       ref=record.ref if record is not None and scenario != "unknown" else None, demo=True)
 
     return app
 

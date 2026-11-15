@@ -1,5 +1,6 @@
 import logging
 from base64 import b64encode
+from math import isfinite
 from threading import Event as Signal, Thread
 
 from sqlalchemy import delete, select, update
@@ -10,22 +11,22 @@ from .crypto_service import canonical, fingerprint
 from .db import Analysis, Certificate, Event, now, timestamp
 from .documents import decode, png
 from .issuance import integrity, matching_record
-from .ocr_service import compare_fields, fields_for
-from .opencv_service import compare_images, forensics
+from .ocr_service import field_agreement, fields_for
+from .opencv_service import forensics
 
 LOG = logging.getLogger(__name__)
 STAGES = {
     "queued": "Queued for analysis", "render": "Decrypting and rendering document",
     "ocr": "Extracting text and document fields", "forensics": "Measuring visual forensic signals",
     "custom": "Running the custom forgery model", "gemini": "Checking multimodal observations",
-    "crypto": "Checking SHA-256 and Ed25519 integrity", "groq": "Preparing the forensic explanation",
+    "crypto": "Checking document integrity", "groq": "Preparing the forensic explanation",
     "complete": "Report available", "failed": "Analysis failed",
 }
 TERMINAL = {"complete", "failed"}
 LIMITS = (
-    "Visual findings and model scores are review signals. Scanning, resaving and layout can create differences.",
-    "An absent issuance record leaves authenticity unknown.",
-    "A valid signature establishes the match to a registered issuance record. Revocation is checked independently.",
+    "Scanning, compression, handwriting, and layout can create visual artifacts.",
+    "For files without a signed record, the verdict estimates visible alteration from the uploaded pages alone.",
+    "Visual confidence describes model support. Gemini can contribute from visible evidence. Issuer verification is a separate check.",
 )
 
 
@@ -34,53 +35,104 @@ def progress(stage, date):
 
 
 def snapshot(row):
+    outcome = published_outcome(row.outcome)
     return {"id": row.id, "filename": row.filename, "mime": row.mime, "stage": row.stage,
-            "outcome": row.outcome, "created_at": timestamp(row.created_at), "demo": row.demo,
+            "outcome": outcome, "verdict": verdict_label(outcome),
+            "created_at": timestamp(row.created_at), "demo": row.demo,
             "progress": row.progress}
 
 
-def outcome_for(crypto, observations, fields, cv_findings, custom, no_text):
-    if crypto["record_status"] == "revoked":
-        return "revoked"
-    if crypto["record_status"] == "invalid_record":
-        return "manual_review"
+def published_outcome(outcome):
+    # Archived reports include old visual-only outcomes.
+    return outcome if outcome in {None, "verified", "modified", "revoked", "visual_fake", "visual_original"} else "manual_review"
+
+
+def verdict_label(outcome):
+    if outcome in {"modified", "visual_fake"}:
+        return "Fake"
+    if outcome in {"verified", "revoked", "visual_original"}:
+        return "Original"
+    return None
+
+
+def visual_score(custom, gemini):
+    local = custom.get("document_assessment")
+    score = None
+    if local:
+        value, threshold = local["score"], local["threshold"]
+        if isfinite(value) and 0 <= value <= 1 and 0 < threshold < 1:
+            edited = value * (1 - threshold)
+            intact = (1 - value) * threshold
+            score = edited / (edited + intact)
+    if not gemini:
+        return score
+
+    vote = gemini.get("visual_assessment")
+    if vote == "likely_edited" and any(
+        finding["severity"] == "high" and finding.get("edit_signal") in {
+            "altered_text", "pasted_content", "duplicated_region", "content_conflict",
+        }
+        for finding in gemini.get("observations", [])
+    ):
+        multiplier = 2.
+    elif vote == "no_clear_edit" and not gemini.get("manual_review_recommended"):
+        multiplier = .8
+    else:
+        return score
+
+    # Keep Gemini's influence bounded. An independent observation can settle
+    # a borderline case without overriding strong local evidence by itself.
+    score = .5 if score is None else score
+    return multiplier * score / (1 - score + multiplier * score)
+
+
+def outcome_for(crypto, custom, gemini=None):
     if crypto["sha256_match"] is True and crypto["signature_valid"]:
-        return "verified"
-    if crypto["sha256_match"] is False:
+        return "revoked" if crypto["record_status"] == "revoked" else "verified"
+    if crypto["sha256_match"] is False and crypto["record_signature_valid"]:
         return "modified"
-    if any(diff["kind"] == "changed" for diff in fields) or any(
-        item["kind"] == "copy_move" for item in cv_findings
-    ) or any(item["severity"] == "high" for item in observations):
-        return "suspicious"
-    if no_text or custom.get("predicted_class") == "visual_tamper_signal":
+    score = visual_score(custom, gemini)
+    if score is None:
         return "manual_review"
-    return "unverified"
+    return "visual_fake" if score >= .5 else "visual_original"
 
 
-def local_summary(outcome, crypto, differences, forensics, custom):
+def assessment_for(report):
+    outcome = report["outcome"]
+    if outcome in {"verified", "modified", "revoked"}:
+        confidence = 100
+    else:
+        score = visual_score(report["custom_model"], report.get("gemini"))
+        confidence = min(99, round(100 * max(score, 1 - score))) if score is not None else None
+    return {"label": verdict_label(outcome), "confidence": confidence}
+
+
+def local_summary(outcome, forensics, custom):
     lines = {
         "verified": "The uploaded bytes match a trusted issuance record and verify against the issuer’s Ed25519 key.",
-        "modified": "The uploaded SHA-256 fingerprint differs from the selected record. The issuer signature does not verify against the uploaded fingerprint.",
-        "revoked": "The issuer has revoked this certificate.",
-        "suspicious": "The inspection found visual or text differences worth reviewing.",
-        "manual_review": "The available evidence calls for manual review.",
-        "unverified": "No trusted issuance record matched. Authenticity is unknown.",
+        "modified": "The uploaded file differs from the signed issuer record. Resaving or rescanning can also change its fingerprint.",
+        "revoked": "The file matches the signed issuer record. The issuer has revoked the certificate.",
+        "visual_fake": "The visual assessment found evidence of editing in the uploaded pages.",
+        "visual_original": "The visual assessment found limited evidence of editing in the uploaded pages.",
+        "manual_review": "This report has no usable authenticity score. Reanalyze the document with the current engines.",
     }
-    changed = [row["label"] for row in differences if row["kind"] == "changed"]
-    extra = f" Extracted values differ for {', '.join(changed)}." if changed else ""
+    extra = ""
     if forensics:
         extra += f" OpenCV marked {len(forensics)} visual regions for inspection."
     if custom.get("status") == "complete":
         extra += f" The custom model returned a visual score of {custom['risk_score']:.3f}."
-    recommendation = "Check the issuer or compare with an authorized original." if outcome != "verified" else "Use the verification link to check current revocation status."
+    recommendation = "Check with the issuer if independent confirmation is needed."
     return {"summary": lines[outcome], "detailed": lines[outcome] + extra, "presentation": lines[outcome],
             "recommendation": recommendation, "source": "local"}
 
 
 def provider_evidence(report):
-    evidence = {key: report[key] for key in ("outcome", "crypto", "differences", "opencv", "anomaly",
-                                             "gemini", "gemini_discrepancies", "custom_model", "limitations")}
+    evidence = {key: report[key] for key in ("crypto", "opencv", "anomaly", "gemini", "custom_model", "limitations")}
+    evidence["assessment"] = assessment_for(report)
+    if evidence["gemini"]:
+        evidence["gemini"] = {key: value for key, value in evidence["gemini"].items() if key != "comparison_summary"}
     evidence["ocr"] = {"fields": {key: field["value"] for key, field in report["fields"].items()},
+                       "gemini_agreement": field_agreement(report["fields"], report["gemini"]),
                        "line_count": len(report["ocr"]), "page_count": report["page_count"]}
     return evidence
 
@@ -142,50 +194,35 @@ class Analyzer:
             data = self.vault.open(row.source, f"analysis:{job}")
             digest = fingerprint(data)
             record = db.get(Certificate, row.certificate_ref) if row.certificate_ref else matching_record(db, digest)
-            original_data = self.vault.open(record.original, f"certificate:{record.ref}") if record and row.compare_allowed else None
             reference = record.ref if record else None
         mime, pages = decode(data)
-        original = decode(original_data)[1] if original_data else []
         self._stage(job, "ocr")
         lines, engines, warnings = self._text(pages)
         current_fields = fields_for(lines)
-        original_lines = lines if data == original_data else self._text(original)[0]
-        original_fields = fields_for(original_lines)
-        differences = compare_fields(original_fields, current_fields) if original else []
         preview = {"page_count": len(pages), "boxes": [{"page": line["page"], "box": line["box"]} for line in lines]}
         self._stage(job, "forensics", preview)
-        cv_findings, scores, comparisons = [], [], []
+        cv_findings, scores = [], []
         for index, page in enumerate(pages, start=1):
             results, score = forensics(page.image, [item for item in lines if item["page"] == index], index, mime)
             cv_findings.extend(results)
             scores.append(score)
-            if index <= len(original):
-                summary, _ = compare_images(original[index-1].image, page.image, index)
-                comparisons.append({"page": index, **summary})
         self._stage(job, "custom")
         custom, layers = self.custom.infer(pages)
         self._stage(job, "gemini")
-        gemini, gemini_meta = (gemini_service.analyze(self.settings, pages, original)
-                               if row.external_ai else (None, {"status": "consent_required"}))
-        observations, discrepancies = [], []
+        gemini, gemini_meta = (gemini_service.analyze(self.settings, pages)
+                               if row.external_ai else (None, {"status": "local_only"}))
         if gemini:
             for item in gemini["observations"]:
                 region = current_fields.get(item["region"])
                 if region and region["page"] == item["page"]:
                     item["box"] = region["box"]
-                observations.append(item)
-            gemini_fields = {name: {"value": value, "page": None, "box": None}
-                             for name, value in gemini["extracted_fields"].items() if value}
-            discrepancies = compare_fields(gemini_fields, current_fields)
         self._stage(job, "crypto")
         with self.sessions() as db:
             crypto = integrity(db, db.get(Certificate, reference) if reference else None, digest)
-        outcome = outcome_for(crypto, observations, differences, cv_findings, custom, not lines)
+        outcome = outcome_for(crypto, custom, gemini)
         report = {"outcome": outcome, "crypto": crypto, "fields": current_fields, "ocr": lines,
-                  "original_fields": original_fields, "original_ocr": original_lines,
-                  "differences": differences, "comparison": comparisons,
-                  "page_count": len(pages), "original_pages": len(original), "opencv": cv_findings,
-                  "anomaly": scores, "custom_model": custom, "gemini": gemini, "gemini_discrepancies": discrepancies,
+                  "page_count": len(pages), "opencv": cv_findings,
+                  "anomaly": scores, "custom_model": custom, "gemini": gemini,
                   "limitations": LIMITS, "warnings": sorted(set(warnings))}
         report["model_layers"] = [{name: b64encode(png(image)).decode("ascii") for name, image in layer.items()}
                                   for layer in layers]
@@ -193,29 +230,31 @@ class Analyzer:
             report["demo_case"] = self.custom.metrics["failure_case"]
         self._stage(job, "groq")
         ai, groq_meta = (groq_service.explain(self.settings, provider_evidence(report))
-                         if row.external_ai else (None, {"status": "consent_required"}))
+                         if row.external_ai else (None, {"status": "local_only"}))
         report["engines"] = {"OCR": {"status": "contributed" if lines else "unavailable", "detail": ", ".join(sorted(set(engines)))},
                              "OpenCV": {"status": "contributed"}, "Isolation forest": {"status": "contributed" if any(s is not None for s in scores) else "unavailable"},
                              "Custom model": {"status": custom["status"], "model": custom.get("version")},
                              "Cryptography": {"status": "contributed"}, "Gemini": gemini_meta, "Groq": groq_meta}
-        report["explanation"] = ({**ai, "source": "Groq"} if ai else local_summary(outcome, crypto, differences, cv_findings, custom))
+        summary = local_summary(outcome, cv_findings, custom)
+        report["explanation"] = ({**ai, "summary": summary["summary"], "source": "Groq"} if ai else summary)
         with self.sessions.begin() as db:
             current = db.get(Analysis, job, options=[defer(Analysis.source), defer(Analysis.report)])
             if current is None:
                 return
             latest = integrity(db, db.get(Certificate, reference) if reference else None, digest)
             if latest != crypto:
-                outcome = outcome_for(latest, observations, differences, cv_findings, custom, not lines)
+                outcome = outcome_for(latest, custom, gemini)
                 report.update(crypto=latest, outcome=outcome,
-                              explanation=local_summary(outcome, latest, differences, cv_findings, custom))
+                              explanation=local_summary(outcome, cv_findings, custom))
             current.certificate_ref = reference
             current.outcome = outcome
             current.report = self.vault.seal(canonical(report), f"report:{job}")
             current.partial = None
             current.stage = "complete"
             current.progress = current.progress + [progress("complete", now())]
-            if outcome in {"modified", "suspicious"}:
-                db.add(Event(actor_id=current.owner_id, subject=job, kind="suspicious_upload", detail=outcome))
+            if verdict_label(outcome) == "Fake":
+                detail = "Signed record fingerprint mismatch" if outcome == "modified" else "Visual model flagged editing"
+                db.add(Event(actor_id=current.owner_id, subject=job, kind="suspicious_upload", detail=detail))
 
     def _text(self, pages):
         lines, engines, warnings = [], [], []

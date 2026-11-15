@@ -1,114 +1,332 @@
 [
   {
     "epoch": 1,
-    "training_loss": 1.5103806681552177,
-    "validation_loss": 1.3901011943817139,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.02015686304376248
+    "training_loss": 1.9905559016598595,
+    "validation_quality": 0.547271944308427,
+    "validation_dice": 0.1319913185602748,
+    "selection_score": 0.43777493764391934,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.4999594155844156,
+        "recall": 0.5142045454545454,
+        "false_positive_rate": 0.5142857142857142,
+        "roc_auc": 0.49815746753246753,
+        "dice": 0.05101669570848398
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.51,
+        "recall": 0.7066666666666667,
+        "false_positive_rate": 0.6866666666666666,
+        "roc_auc": 0.5160444444444444,
+        "dice": 0.1603391660294184
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8565668202764978,
+        "recall": 0.9631336405529954,
+        "false_positive_rate": 0.25,
+        "roc_auc": 0.9107142857142858
+      },
+      "doctamper": {
+        "recall": 0.43373493975903615,
+        "dice": 0.184618093942922
+      }
+    }
   },
   {
     "epoch": 2,
-    "training_loss": 1.3219019214985734,
-    "validation_loss": 1.2707167588747466,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.027330421908910975
+    "training_loss": 1.932027471727795,
+    "validation_quality": 0.5541202267369169,
+    "validation_dice": 0.14989937737420247,
+    "selection_score": 0.4445859106899145,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5011363636363637,
+        "recall": 0.6022727272727273,
+        "false_positive_rate": 0.6,
+        "roc_auc": 0.49869318181818173,
+        "dice": 0.034218872979273895
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.5433333333333334,
+        "recall": 0.44666666666666666,
+        "false_positive_rate": 0.36,
+        "roc_auc": 0.5636888888888889,
+        "dice": 0.2339641256834345
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8728878648233487,
+        "recall": 0.9124423963133641,
+        "false_positive_rate": 0.16666666666666666,
+        "roc_auc": 0.9379800307219661
+      },
+      "doctamper": {
+        "recall": 0.3845381526104418,
+        "dice": 0.181515133459899
+      }
+    }
   },
   {
     "epoch": 3,
-    "training_loss": 1.2182591345350622,
-    "validation_loss": 1.193927865761977,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.03460360458649438
+    "training_loss": 1.9066392938296,
+    "validation_quality": 0.5479567901179571,
+    "validation_dice": 0.15385733788972278,
+    "selection_score": 0.44316862570761106,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5053003246753247,
+        "recall": 0.6448863636363636,
+        "false_positive_rate": 0.6342857142857142,
+        "roc_auc": 0.4977029220779221,
+        "dice": 0.05375560523299001
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.5366666666666667,
+        "recall": 0.34,
+        "false_positive_rate": 0.26666666666666666,
+        "roc_auc": 0.5661333333333334,
+        "dice": 0.2394002747745057
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.831221198156682,
+        "recall": 0.9124423963133641,
+        "false_positive_rate": 0.25,
+        "roc_auc": 0.9230030721966205
+      },
+      "doctamper": {
+        "recall": 0.4226907630522088,
+        "dice": 0.16841613366167263
+      }
+    }
   },
   {
     "epoch": 4,
-    "training_loss": 1.1615155551393153,
-    "validation_loss": 1.160448248569782,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.04649293305087543
+    "training_loss": 1.8634632527828217,
+    "validation_quality": 0.5680970970270827,
+    "validation_dice": 0.19348947289764873,
+    "selection_score": 0.4591929465851371,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5042451298701298,
+        "recall": 0.5142045454545454,
+        "false_positive_rate": 0.5057142857142857,
+        "roc_auc": 0.5016558441558441,
+        "dice": 0.06077532085590126
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.6066666666666667,
+        "recall": 0.54,
+        "false_positive_rate": 0.32666666666666666,
+        "roc_auc": 0.6512,
+        "dice": 0.34594220149472166
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8821044546850998,
+        "recall": 0.9308755760368663,
+        "false_positive_rate": 0.16666666666666666,
+        "roc_auc": 0.9374039938556067
+      },
+      "doctamper": {
+        "recall": 0.26305220883534136,
+        "dice": 0.17375089634232327
+      }
+    }
   },
   {
     "epoch": 5,
-    "training_loss": 1.1240656901214083,
-    "validation_loss": 1.1043821023060725,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.07318587199937139
+    "training_loss": 1.8177043742603727,
+    "validation_quality": 0.5545029054912345,
+    "validation_dice": 0.1575399488159231,
+    "selection_score": 0.45881212144945127,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.49958603896103904,
+        "recall": 0.6448863636363636,
+        "false_positive_rate": 0.6457142857142857,
+        "roc_auc": 0.49723214285714284,
+        "dice": 0.05182472032219148
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.6,
+        "recall": 0.20666666666666667,
+        "false_positive_rate": 0.006666666666666667,
+        "roc_auc": 0.6871111111111112,
+        "dice": 0.2900424367506899
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8776881720430109,
+        "recall": 0.8387096774193549,
+        "false_positive_rate": 0.08333333333333333,
+        "roc_auc": 0.9237711213517664
+      },
+      "doctamper": {
+        "recall": 0.6255020080321285,
+        "dice": 0.13075268937488788
+      }
+    }
   },
   {
     "epoch": 6,
-    "training_loss": 1.0972271814184673,
-    "validation_loss": 1.0930669216009288,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.07038944228712928
+    "training_loss": 1.7642113149166108,
+    "validation_quality": 0.5756449524116694,
+    "validation_dice": 0.21893195020242753,
+    "selection_score": 0.49151979560423725,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5098133116883117,
+        "recall": 0.5653409090909091,
+        "false_positive_rate": 0.5457142857142857,
+        "roc_auc": 0.5045779220779221,
+        "dice": 0.06255934256067089
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.7300000000000001,
+        "recall": 0.4666666666666667,
+        "false_positive_rate": 0.006666666666666667,
+        "roc_auc": 0.799111111111111,
+        "dice": 0.42832321178159793
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8011712749615975,
+        "recall": 0.8940092165898618,
+        "false_positive_rate": 0.2916666666666667,
+        "roc_auc": 0.9208909370199693
+      },
+      "doctamper": {
+        "recall": 0.6767068273092369,
+        "dice": 0.16591329626501378
+      }
+    }
   },
   {
     "epoch": 7,
-    "training_loss": 1.0821810920359725,
-    "validation_loss": 1.0902428810413067,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.0660259487574036
+    "training_loss": 1.7290741390652127,
+    "validation_quality": 0.5800344650304612,
+    "validation_dice": 0.2259942138272731,
+    "selection_score": 0.48963111271308085,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5082224025974025,
+        "recall": 0.6221590909090909,
+        "false_positive_rate": 0.6057142857142858,
+        "roc_auc": 0.5038555194805194,
+        "dice": 0.05129644737317936
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.77,
+        "recall": 0.58,
+        "false_positive_rate": 0.04,
+        "roc_auc": 0.8170666666666667,
+        "dice": 0.4620856314072796
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8103878648233487,
+        "recall": 0.9124423963133641,
+        "false_positive_rate": 0.2916666666666667,
+        "roc_auc": 0.933179723502304
+      },
+      "doctamper": {
+        "recall": 0.5421686746987951,
+        "dice": 0.1646005627013604
+      }
+    }
   },
   {
     "epoch": 8,
-    "training_loss": 1.0679042601989488,
-    "validation_loss": 1.0612124663132887,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.10597132351760569
+    "training_loss": 1.6717900276184081,
+    "validation_quality": 0.5899955236064018,
+    "validation_dice": 0.21236772022736472,
+    "selection_score": 0.48682172830823006,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5100162337662337,
+        "recall": 0.4943181818181818,
+        "false_positive_rate": 0.4742857142857143,
+        "roc_auc": 0.5059537337662338,
+        "dice": 0.05956856301707149
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.77,
+        "recall": 0.7333333333333333,
+        "false_positive_rate": 0.19333333333333333,
+        "roc_auc": 0.8391555555555555,
+        "dice": 0.4133826883218611
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8519585253456221,
+        "recall": 0.9539170506912442,
+        "false_positive_rate": 0.25,
+        "roc_auc": 0.9454685099846389
+      },
+      "doctamper": {
+        "recall": 0.4146586345381526,
+        "dice": 0.1641519093431616
+      }
+    }
   },
   {
     "epoch": 9,
-    "training_loss": 1.0559672440512706,
-    "validation_loss": 1.0511579972047072,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.10679343253443592
+    "training_loss": 1.6399676971965367,
+    "validation_quality": 0.5814146978219947,
+    "validation_dice": 0.23990968794479275,
+    "selection_score": 0.4976404012246467,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5107873376623377,
+        "recall": 0.7244318181818182,
+        "false_positive_rate": 0.7028571428571428,
+        "roc_auc": 0.5061363636363636,
+        "dice": 0.04928545582204173
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.8066666666666668,
+        "recall": 0.68,
+        "false_positive_rate": 0.06666666666666667,
+        "roc_auc": 0.8514666666666666,
+        "dice": 0.48761159679309385
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8149001536098311,
+        "recall": 0.9631336405529954,
+        "false_positive_rate": 0.3333333333333333,
+        "roc_auc": 0.9375960061443933
+      },
+      "doctamper": {
+        "recall": 0.6134538152610441,
+        "dice": 0.18283201121924278
+      }
+    }
   },
   {
     "epoch": 10,
-    "training_loss": 1.0493999113470822,
-    "validation_loss": 1.0452910569997935,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.12094126952738778
-  },
-  {
-    "epoch": 11,
-    "training_loss": 1.042492147219383,
-    "validation_loss": 1.0371788465059721,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.12869279859900448
-  },
-  {
-    "epoch": 12,
-    "training_loss": 1.0369301428229123,
-    "validation_loss": 1.0340115932317882,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.13097221876787624
-  },
-  {
-    "epoch": 13,
-    "training_loss": 1.0304291612010892,
-    "validation_loss": 1.0281930703383226,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.1521647981040926
-  },
-  {
-    "epoch": 14,
-    "training_loss": 1.0274795314012948,
-    "validation_loss": 1.0270752906799316,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.14445387772905358
-  },
-  {
-    "epoch": 15,
-    "training_loss": 1.0242052502551322,
-    "validation_loss": 1.0240318041581373,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.15548015410172128
-  },
-  {
-    "epoch": 16,
-    "training_loss": 1.0227785716622562,
-    "validation_loss": 1.0234074867688692,
-    "validation_f1": 0.6666666666666666,
-    "validation_dice": 0.15960365996422451
+    "training_loss": 1.6585483113924662,
+    "validation_quality": 0.5920475337948801,
+    "validation_dice": 0.2444987820965633,
+    "selection_score": 0.4969435113492316,
+    "sources": {
+      "aiforge-v2": {
+        "balanced_accuracy": 0.5140422077922078,
+        "recall": 0.5852272727272727,
+        "false_positive_rate": 0.5571428571428572,
+        "roc_auc": 0.5087987012987014,
+        "dice": 0.0517917276172672
+      },
+      "verifex-synthetic": {
+        "balanced_accuracy": 0.82,
+        "recall": 0.6866666666666666,
+        "false_positive_rate": 0.04666666666666667,
+        "roc_auc": 0.8559111111111111,
+        "dice": 0.4940310795513018
+      },
+      "tamperflow": {
+        "balanced_accuracy": 0.8056835637480799,
+        "recall": 0.9447004608294931,
+        "false_positive_rate": 0.3333333333333333,
+        "roc_auc": 0.9397081413210445
+      },
+      "doctamper": {
+        "recall": 0.42771084337349397,
+        "dice": 0.18767353912112097
+      }
+    }
   }
 ]

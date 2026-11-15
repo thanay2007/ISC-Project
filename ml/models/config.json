@@ -1,22 +1,63 @@
 {
-  "name": "VERIFEX Compact U-Net",
-  "version": "synthetic-unet-v1",
-  "trained_at": "2026-11-09T07:36:43.030057+00:00",
-  "epoch": 16,
+  "name": "VERIFEX Balanced U-Net",
+  "architecture": "balanced-unet",
+  "version": "mixed-unet-v3",
+  "epoch": 9,
+  "trained_at": "2026-11-09T16:08:49.083440+00:00",
   "seed": 427,
-  "device": "cpu",
-  "learning_rate": 0.002,
-  "batch_size": 24,
-  "size": 128,
+  "device": "cuda",
+  "mixed_precision": true,
+  "learning_rate": 0.001,
+  "batch_size": 16,
+  "steps_per_epoch": 180,
+  "size": 320,
+  "initial_checkpoint_sha256": "79b8963138d1dd06ac13e49e02e8b466d2eb991f8a5c89736659fd6063e15b87",
+  "paired_crop_examples": 5586,
   "dataset": {
-    "image_size": 128,
+    "image_size": 320,
     "counts": {
-      "train_0": 700,
-      "train_1": 700,
-      "validation_0": 150,
-      "validation_1": 150,
-      "test_0": 150,
-      "test_1": 150
+      "test_0": 795,
+      "test_1": 2264,
+      "validation_0": 524,
+      "validation_1": 1715,
+      "train_0": 2884,
+      "train_1": 9607
+    },
+    "sources": {
+      "aiforge-v2": {
+        "test_0": 612,
+        "test_1": 613,
+        "validation_0": 350,
+        "validation_1": 352,
+        "train_0": 2073,
+        "train_1": 2093
+      },
+      "tamperflow": {
+        "test_1": 305,
+        "test_0": 33,
+        "validation_1": 217,
+        "validation_0": 24,
+        "train_1": 915,
+        "train_0": 111
+      },
+      "doctamper": {
+        "test_1": 1196,
+        "validation_1": 996,
+        "train_1": 5899
+      },
+      "verifex-synthetic": {
+        "test_0": 150,
+        "test_1": 150,
+        "validation_0": 150,
+        "validation_1": 150,
+        "train_0": 700,
+        "train_1": 700
+      }
+    },
+    "removed": {
+      "aiforge-v2_duplicate_images": 23,
+      "doctamper_duplicate_images": 109,
+      "tamperflow_duplicate_images": 147
     },
     "template_split": {
       "train": [
@@ -45,15 +86,27 @@
         18,
         19
       ]
-    }
+    },
+    "split_seed": 427,
+    "pilot": false,
+    "aiforge_paired": true,
+    "limitations": "Experimental visual model. Training uses document edits and synthetic certificates. Scores are uncalibrated and depend on document type and image quality."
   },
-  "classification_threshold": 0.5178775191307068,
-  "mask_threshold": 0.45,
+  "classification_threshold": 0.4644376039505005,
+  "mask_threshold": 0.5,
   "classes": [
     "no_visual_tamper_signal",
     "visual_tamper_signal"
   ],
-  "preprocessing": "Letterbox BGR, normalized grayscale, Gaussian residual; inverse crop for masks",
-  "limitations": "Trained on fictional certificates. Scores are uncalibrated visual signals. Scans, uncommon layouts and subtle edits can produce missed or spurious regions.",
-  "threshold_selection": "Maximum balanced accuracy on held-out validation templates; tie favors lower false-positive rate."
+  "preprocessing": "Letterboxed RGB and grayscale residual",
+  "classification_sources": [
+    "aiforge-v2",
+    "verifex-synthetic",
+    "tamperflow"
+  ],
+  "threshold_policy": "Favor the weakest labeled source's balanced accuracy and recall/specificity balance. Use altered-only DocTamper recall as a secondary signal.",
+  "limitations": "Visual scores are uncalibrated. The held-out AIForge v2 results were near chance, and the model flagged many genuine AIForge and TamperFlow pages.",
+  "mask_score_weight": 0.0,
+  "mask_score_divisor": 160,
+  "calibration_policy": "Validation-only page and top-mask logit blend with per-source ROC-AUC and DocTamper recall guards."
 }
