@@ -1,6 +1,6 @@
 # Live presentation guide
 
-Open [the demo lab](http://localhost:3000/demo). Before presenting, run the PaddleOCR preload command from the [setup guide](../README.md) and run one sample. Configured providers run automatically. The Engines tab shows which engines contributed.
+Set `DEMO_ENABLED=true` and restart the stack. Before presenting, preload PaddleOCR and run one sample. Configured providers run automatically. The **Engines** tab shows which engines contributed. [Setup guide](SETUP.md) · [Demo lab](http://localhost:3000/demo)
 
 | Scenario | What to show |
 | --- | --- |
@@ -11,6 +11,6 @@ Open [the demo lab](http://localhost:3000/demo). Before presenting, run the Padd
 | Unauthorized access | Use a verifier account and run the restricted request. Open the recorded audit event after the real HTTP 403. |
 | PDF report | Open **Forensic reports** to download a completed analysis with its verdict, confidence score, and findings. |
 
-**Reset demo** clears this account’s demo analyses while preserving audit events. For an issuance walkthrough, sign in as an institution and register a fictional document, open the public QR record, and revoke the certificate.
+**Reset demo** clears this account’s demo analyses while preserving audit events. For an issuance walkthrough, sign in with an institution or administrator account, register a fictional document, open the public QR record, and revoke the certificate. [User workflows](WORKFLOWS.md)
 
 For a phone scan on the same network, set PUBLIC_URL to the LAN address of the computer running the frontend and bind Next.js to that interface. Restart both services and open the LAN URL before generating the QR code.
